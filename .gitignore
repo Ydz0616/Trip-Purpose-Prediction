@@ -1,2 +1,10 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS Finder metadata
+.DS_Store
+
+# Project data
 data/mode_purpose_hmm.csv
-.DS_store
