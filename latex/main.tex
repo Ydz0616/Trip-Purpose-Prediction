@@ -153,13 +153,7 @@ P(\text{purpose} = p \mid \text{mode} = m)
 \]
 Then for each observed mode, we just predict the purpose with the highest conditional probability. This ignores temporal structure, treating all trips independently.
 
-\subsection*{Edge-Emitting HMM}
 
-Instead of emitting an observation from a state, the transition itself emits the mode:
-\[
-P(O_t \mid Z_{t-1}, Z_t)
-\]
-This captures sequences of events instead of individual states. This puts more emphasis on behavioral patterns. Some behavior patterns are better described as pairs.
 
 \subsection*{Random Forest Baseline}
 
@@ -173,11 +167,40 @@ This is how the Random forest classifier is trained on trip data:
 
 This baseline is more flexible than the rule-based and pure frequency-based baselines. Comparing our HMM against this Random Forest baseline can help us understand the additional value coming from modeling temporal dependencies.
 
+\section{Models}
+\subsection*{HMM}
+
+placeholder
+
+\subsection*{N-gram model}
+
+placeholder
+
+\subsection*{Edge-Emitting HMM}
+
+Instead of emitting an observation from a state, the transition itself emits the mode:
+\[
+P(O_t \mid Z_{t-1}, Z_t)
+\]
+This captures sequences of events instead of individual states. This puts more emphasis on behavioral patterns. Some behavior patterns are better described as pairs.
+
 \section{Results and Discussion}
 
-So far, our hypothesis is that HMM will outperform rule-based baseline and baseline models without sequential information. On top of this, we will compare the performance variation in different HMM structures, mainly, we would compare the performance between ordinary HMM and edge-emitting HMM, where the transition between two consecutive trip modes is used as a hidden state.
+We use a binary accuracy function to measure the model’s performance, where the predicted purpose is compared to the ground truth purpose with an indicator function.
+\begin{table}[h!]
+\centering
+\begin{tabular}{c|ccc}
+    & \textbf{Rule-based} & \textbf{Probability-based} & \textbf{Random Forest} \\
+    \hline
+    \textbf{Accuracy} & 0.2092 & 0.2722 & 0.4617 \\
+\end{tabular}
+\end{table}
 
-We will use a binary accuracy function to measure the model’s performance, where the predicted purpose is compared to the ground truth purpose with an indicator function.
+So far we've included three baselines, rule-based, which predicts purposes given time of day; probability-based, which predicts purpose by random sampling given mode and its purpose distribution as weights, and random forest, which also ignore the sequential nature of the dataset and treats every trip as one training entry, and predicts a purpose given mode.
+
+Among the baselines, the rule-based model has the lowest accuracy of 0.2092, which is almost close to the probability randomly guessing one of the five trip purposes. Probability-based baseline also suffers from lack of sequential understanding of the trip sequences. Random forest model, which also ignores sequential information, has the highest accuracy of 0.4617. However, by looking at its confusion matrix, we've discovered the imbalanced dataset has caused this model to give better predictions on entries it seen more and vice versa.
+
+
 
 \section{Conclusion}
 
