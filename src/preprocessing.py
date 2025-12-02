@@ -176,9 +176,10 @@ if __name__ == "__main__":
         print(user)
         print('------ trips of the user -----')
         print(trips)
-        break;
+        break
 
     tp = train_test_split_by_user(sequences=user_dict,test_size=0.2,random_seed=42)
+    import pdb; pdb.set_trace()
     train, test = tp[0], tp[1]
 
     print("----- train set entry -----")

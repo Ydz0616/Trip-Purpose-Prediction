@@ -172,9 +172,93 @@ This baseline is more flexible than the rule-based and pure frequency-based base
 
 placeholder
 
-\subsection*{N-gram model}
+\subsection*{3-gram Hidden Markov Model (Higher-Order Extension)}
 
-placeholder
+We extend our first-order HMM to a 3-gram (third-order) Markov structure over latent purposes. 
+Hidden states and observations follow the same notation used throughout the report:
+\[
+Z_t \in \{1, \dots, K\}, \qquad
+O_t \in \{1, \dots, M\}.
+\]
+
+A 3-gram Markov assumption states that for all $t \ge 3$,
+\[
+P(Z_t \mid Z_{1:t-1}) = P(Z_t \mid Z_{t-1}, Z_{t-2}),
+\]
+so each latent purpose depends on the two preceding purposes.
+
+Emissions remain the same as in our first-order HMM:
+\[
+P(O_t \mid Z_t).
+\]
+
+Because the latent state now depends on two previous states, the initial distribution 
+must assign probability to the first \emph{pair} of latent purposes:
+\[
+\pi_{ij} = P(Z_1 = i,\, Z_2 = j).
+\]
+
+\paragraph{Model parameters.}
+We define the parameters of the 3-gram HMM as:
+\[
+A_{ijk} = P(Z_t = k \mid Z_{t-2} = i,\, Z_{t-1} = j),
+\qquad
+B_{k o} = P(O_t = o \mid Z_t = k),
+\qquad
+\pi_{ij} = P(Z_1 = i,\, Z_2 = j).
+\]
+
+\paragraph{Normalization constraints.}
+\[
+\sum_{i,j} \pi_{ij} = 1,
+\qquad
+\sum_{k=1}^K A_{ijk} = 1\;\; \forall (i,j),
+\qquad
+\sum_{o=1}^M B_{k o} = 1\;\; \forall k.
+\]
+
+\paragraph{MLE estimation.}
+Training data contains fully observed purposes, so we may estimate all parameters
+via normalized frequency counts (no EM needed). Let
+\[
+C^{(\mathrm{tr})}_{ijk}
+= \#\{t \ge 3 : (Z_{t-2}, Z_{t-1}, Z_t) = (i,j,k)\},
+\]
+\[
+C^{(\mathrm{em})}_{k o}
+= \#\{t : Z_t = k,\; O_t = o\},
+\]
+\[
+C^{(\mathrm{init})}_{ij}
+= \#\{(Z_1, Z_2) = (i,j)\}.
+\]
+
+Then the MLE updates are:
+\[
+A_{ijk}
+\leftarrow
+\frac{C^{(\mathrm{tr})}_{ijk}}
+     {\sum_{k'} C^{(\mathrm{tr})}_{ijk'}},
+\]
+\[
+B_{k o}
+\leftarrow
+\frac{C^{(\mathrm{em})}_{k o}}
+     {\sum_{o'} C^{(\mathrm{em})}_{k o'}},
+\]
+\[
+\pi_{ij}
+\leftarrow
+\frac{C^{(\mathrm{init})}_{ij}}
+     {\sum_{i',j'} C^{(\mathrm{init})}_{i'j'}}.
+\]
+
+In words:
+\begin{itemize}
+    \item $A$ is estimated by counting how often each state-pair $(i,j)$ transitions into a next state $k$, then normalizing over $k$.
+    \item $B$ follows the same MLE rule as the first-order HMM, normalizing counts over observation symbols.
+    \item $\pi$ is the empirical distribution of the initial latent-purpose pair $(Z_1, Z_2)$.
+\end{itemize}
 
 \subsection*{Edge-Emitting HMM}
 

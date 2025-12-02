@@ -1,5 +1,59 @@
 import numpy as np
 from typing import List, Tuple
+from src.utils import LabelEncoder
+
+class ThreeGramHiddenMarkovModel:
+    """
+    Custom implementation of a 3-gram Hidden Markov Model (IN PROGRESS)
+    """
+    def __init__(self, num_states: int, num_observations: int):
+        self.num_states = num_states
+        self.num_observations = num_observations
+        self.A = np.zeros((num_states, num_states, num_states), dtype=float)
+        self.B = np.zeros((num_states, num_observations), dtype=float)
+        self.pi = np.zeros((num_states, num_states), dtype=float)
+
+    def randomly_initialize_parameters(self, random_seed: int = 42):
+        pass
+
+    def maximum_likelihood_initialize_parameters(self, train_sequences: List[List[int]], purpose_encoder: "LabelEncoder", mode_encoder: "LabelEncoder"):
+        for seq in train_sequences:
+            # Here the length of the sequence matters
+            len_seq = len(seq)
+            prev = seq[0]
+            self.B[purpose_encoder.transform([prev[1]])[0]][mode_encoder.transform([prev[0]])[0]] += 1
+
+            if len_seq == 1:
+                # we can only update the emission probabilities
+                continue
+
+            prev2 = seq[1]
+            self.B[purpose_encoder.transform([prev2[1]])[0]][mode_encoder.transform([prev2[0]])[0]] += 1
+            self.pi[purpose_encoder.transform([prev[1]])[0]][purpose_encoder.transform([prev2[1]])[0]] += 1
+
+            if len_seq == 2:
+                # we can update the emission and initial probabilities
+                continue
+            
+            # we can update the emission, initial, and 3-gram transition probabilities
+            for i in range(2, len_seq):
+                prev3 = seq[i]
+                self.A[purpose_encoder.transform([prev[1]])[0]][purpose_encoder.transform([prev2[1]])[0]][purpose_encoder.transform([prev3[1]])[0]] += 1
+                self.B[purpose_encoder.transform([prev3[1]])[0]][mode_encoder.transform([prev3[0]])[0]] += 1
+                prev = prev2
+                prev2 = prev3
+
+            self.pi = self.pi / np.sum(self.pi)
+            # normalize A along last axis (sum_k A[i,j,k] = 1 when row has data)
+            A_row_sums = self.A.sum(axis=2, keepdims=True)   # shape: (num_states, num_states, 1)
+            np.divide(self.A, A_row_sums, out=self.A, where=A_row_sums != 0)
+
+            # normalize B along last axis (sum_o B[k,o] = 1 when row has data)
+            B_row_sums = self.B.sum(axis=1, keepdims=True)   # shape: (num_states, 1)
+            np.divide(self.B, B_row_sums, out=self.B, where=B_row_sums != 0)
+
+
+
 
 class HiddenMarkovModel:
     """
@@ -20,23 +74,67 @@ class HiddenMarkovModel:
         self.num_states = num_states
         self.num_observations = num_observations
         
-        self.A = None
-        self.B = None
-        self.pi = None
+        self.A = np.zeros((num_states, num_states), dtype=float)
+        self.B = np.zeros((num_states, num_observations), dtype=float)
+        self.pi = np.zeros(num_states, dtype=float)
         
-    def initialize_parameters(self, random_seed: int = 42):
+    def randomly_initialize_parameters(self, random_seed: int = 42):
         """
         Initialize A, B, and pi with random probabilities (normalized).
         """
         np.random.seed(random_seed)
         
-        # TODO: Initialize self.A (random, normalize rows to sum to 1)
+        # Initialize self.A (random, normalize rows to sum to 1)
+        for i in range(self.num_states):
+            for j in range(self.num_states):
+                self.A[i][j] = np.random.rand()
+            self.A[i] = self.A[i] / np.sum(self.A[i])
+
+        # Initialize self.B (random, normalize rows to sum to 1)
+        for i in range(self.num_states):
+            for j in range(self.num_observations):
+                self.B[i][j] = np.random.rand()
+            self.B[i] = self.B[i] / np.sum(self.B[i])
         
-        # TODO: Initialize self.B (random, normalize rows to sum to 1)
-        
-        # TODO: Initialize self.pi (random, normalize to sum to 1)
-        
-        pass
+        # Initialize self.pi (random, normalize to sum to 1)
+        for i in range(self.num_states):
+            self.pi[i] = np.random.rand()
+        self.pi = self.pi / np.sum(self.pi)
+
+    """
+    Following a discussion with our TA mentor after project milestone 2, it became apparent that because the hidden variables in this modeling problem (the trip purposes) are fully observed in the training data, we can use Maximum Likelihood to train the HMM."""
+
+    def maximum_likelihood_initialize_parameters(self, train_sequences: List[List[int]], purpose_encoder: "LabelEncoder", mode_encoder: "LabelEncoder"):
+        """
+        Initialize A, B, pi using Maximum Likelihood on the training data.
+        """
+        # Reset parameters to zero before counting
+        self.A.fill(0.0)
+        self.B.fill(0.0)
+        self.pi.fill(0.0)
+        # Intuition tells me that we can just populate the counts and normalize last.
+        for seq in train_sequences:
+            if len(seq) == 0:
+                continue
+            prev = seq[0]
+            # every element of seq has structure (mode, purpose, timestamp, timezone)
+            # we can increment the count of pi with head[1]
+            self.pi[purpose_encoder.transform([prev[1]])[0]] += 1
+            self.B[purpose_encoder.transform([prev[1]])[0]][mode_encoder.transform([prev[0]])[0]] += 1
+
+            for i in range(1, len(seq)):
+                curr = seq[i]
+                self.A[purpose_encoder.transform([prev[1]])[0]][purpose_encoder.transform([curr[1]])[0]] += 1
+                self.B[purpose_encoder.transform([curr[1]])[0]][mode_encoder.transform([curr[0]])[0]] += 1
+                prev = curr
+
+        self.pi = self.pi / np.sum(self.pi)
+        row_sums = self.A.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1.0
+        self.A /= row_sums
+        row_sums = self.B.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1.0
+        self.B /= row_sums
 
     def _forward(self, observation_sequence: List[int]) -> np.ndarray:
         """
