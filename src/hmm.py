@@ -262,6 +262,181 @@ class HiddenMarkovModel:
 
         return stateSequence[::-1]
 
+
+
+
+class EdgeEmittingHiddenMarkovModel:
+    """
+    Edge-emitting HMM for trip purpose modeling.
+
+    - Hidden states: trip purposes (encoded as integers 0..K-1)
+    - Observations: modes (encoded as integers 0..V-1)
+    - START state: index K (virtual previous state for t=0)
+
+    Parameters:
+
+        num_states (int):      Number of hidden states (purposes), K.
+        num_observations (int):Number of possible observations (modes), V.
+
+    Notes:
+        - training data uses ML , since purpose are known
+    """
+
+    def __init__(self, num_states: int, num_observations: int, smoothing: float = 1.0):
+        self.num_states = num_states     
+        self.num_observations = num_observations  
+        self.START_STATE = num_states   
+        self.smoothing = smoothing   
+
+        # Transition matrix A: (K+1, K)
+        self.A = np.zeros((self.num_states + 1, self.num_states), dtype=float)
+
+        # Edge emission matrix B: (K+1, K, V)
+        self.B = np.zeros(
+            (self.num_states + 1, self.num_states, self.num_observations),
+            dtype=float,
+        )
+
+    def randomly_initialize_parameters(self, random_seed: int = 42):
+        """
+        Randomly initialize A and B with valid probability distributions.
+        """
+        np.random.seed(random_seed)
+
+        # --- Initialize A: row-wise normalization ---
+        for i in range(self.num_states + 1):  # include START row
+            for j in range(self.num_states):
+                self.A[i][j] = np.random.rand()
+            self.A[i] = self.A[i]/np.sum(self.A[i])
+            
+
+        # --- Initialize B: normalize over 'obs' dimension ---
+        for i in range(self.num_states + 1):      
+            for j in range(self.num_states):     
+                for v in range(self.num_observations):
+                    self.B[i][j][v] = np.random.rand()
+                self.B[i][j] = self.B[i][j]/np.sum(self.B[i][j])
+                
+
+    def maximum_likelihood_initialize_parameters(
+        self,
+        train_sequences: List[List[Tuple[str, str, str]]],
+        purpose_encoder: "LabelEncoder",
+        mode_encoder: "LabelEncoder",
+    ):
+        """
+        Estimate A and B via supervised Maximum Likelihood.
+
+        Args:
+            train_sequences:
+                List of daily sequences.
+                Each sequence is a list of tuples:
+                    (mode_str, purpose_str, timestamp)
+
+            purpose_encoder:
+                LabelEncoder already fitted on all purposes
+                transform(purpose_str) -> int in [0..K-1]
+
+            mode_encoder:
+                LabelEncoder already fitted on all modes
+                transform(mode_str) -> int in [0..V-1]
+
+        """
+        # 1) reset counts
+        self.A.fill(0.0)
+        self.B.fill(0.0)
+
+        START = self.START_STATE
+        # 2) accumulate counts from data
+        for seq in train_sequences:
+            if len(seq) == 0:
+                continue
+
+            # every seq is a (mode_str, purpose_str, timestamp) tuple
+            modes = [row[0] for row in seq]
+            purposes = [row[1] for row in seq]
+
+            # transform
+            state_indices = purpose_encoder.transform(purposes)  # shape (T,)
+            obs_indices = mode_encoder.transform(modes)          # shape (T,)
+
+            T = len(state_indices)
+            if T == 0:
+                continue
+
+            z0 = state_indices[0] #Purpose
+            x0 = obs_indices[0] # mode
+
+            # first traj
+            self.A[START,z0] +=1.0
+            self.B[START,z0,x0] +=1.0
+            
+            
+            for t in range(1,T):
+                prev_state = state_indices[t-1]
+                curr_state = state_indices[t]
+                x_t = obs_indices[t]
+                self.A[prev_state,curr_state] +=1.0
+                self.B[prev_state,curr_state,x_t] +=1.0
+
+
+        # 3) Laplace smoothing + normalization
+
+        alpha = self.smoothing                
+        A_smooth = self.A + alpha
+
+        row_sums = A_smooth.sum(axis = 1, keepdims=True)
+        row_sums[row_sums == 0] = 1.0
+        self.A = A_smooth/row_sums
+
+        B_smooth = self.B + alpha 
+        obs_sums = B_smooth.sum(axis = 2 , keepdims=True)
+        obs_sums [obs_sums ==0] = 1.0
+        self.B = B_smooth/obs_sums
+
+
+    def predict_viterbi(self, observation_sequence: List[int]) -> List[int]:
+        T = len(observation_sequence)
+        if T == 0:
+            return []
+
+        K = self.num_states
+        START = self.START_STATE
+
+        eps = 1e-15
+        logA = np.log(self.A + eps)        # (K+1, K)
+        logB = np.log(self.B + eps)        # (K+1, K, V)
+
+        dp = np.full((T, K), -np.inf)
+        backptr = np.full((T, K), -1, dtype=int)
+
+        # Initialization at t = 0
+        x0 = observation_sequence[0]
+        for j in range(K):
+            dp[0, j] = logA[START, j] + logB[START, j, x0]
+            backptr[0, j] = START
+
+        # Recursion for t = 1..T-1
+        for t in range(1, T):
+            x_t = observation_sequence[t]
+            for j in range(K):
+                # scores from all previous states i -> j
+                scores = dp[t - 1, :] + logA[:K, j] + logB[:K, j, x_t]
+                i_star = int(np.argmax(scores))
+                dp[t, j] = scores[i_star]
+                backptr[t, j] = i_star
+
+        # Backtrace
+        last_state = int(np.argmax(dp[T - 1, :]))
+        state_sequence = [last_state]
+
+        for t in range(T - 2, -1, -1):
+            prev_state = backptr[t + 1, state_sequence[-1]]
+            state_sequence.append(prev_state)
+
+        state_sequence.reverse()
+        return state_sequence
+
 if __name__ == "__main__":
     num_states = 2
     num_observations = 3
