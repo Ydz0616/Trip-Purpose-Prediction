@@ -2,59 +2,6 @@ import numpy as np
 from typing import List, Tuple
 from src.utils import LabelEncoder
 
-class ThreeGramHiddenMarkovModel:
-    """
-    Custom implementation of a 3-gram Hidden Markov Model (IN PROGRESS)
-    """
-    def __init__(self, num_states: int, num_observations: int):
-        self.num_states = num_states
-        self.num_observations = num_observations
-        self.A = np.zeros((num_states, num_states, num_states), dtype=float)
-        self.B = np.zeros((num_states, num_observations), dtype=float)
-        self.pi = np.zeros((num_states, num_states), dtype=float)
-
-    def randomly_initialize_parameters(self, random_seed: int = 42):
-        pass
-
-    def maximum_likelihood_initialize_parameters(self, train_sequences: List[List[int]], purpose_encoder: "LabelEncoder", mode_encoder: "LabelEncoder"):
-        for seq in train_sequences:
-            # Here the length of the sequence matters
-            len_seq = len(seq)
-            prev = seq[0]
-            self.B[purpose_encoder.transform([prev[1]])[0]][mode_encoder.transform([prev[0]])[0]] += 1
-
-            if len_seq == 1:
-                # we can only update the emission probabilities
-                continue
-
-            prev2 = seq[1]
-            self.B[purpose_encoder.transform([prev2[1]])[0]][mode_encoder.transform([prev2[0]])[0]] += 1
-            self.pi[purpose_encoder.transform([prev[1]])[0]][purpose_encoder.transform([prev2[1]])[0]] += 1
-
-            if len_seq == 2:
-                # we can update the emission and initial probabilities
-                continue
-            
-            # we can update the emission, initial, and 3-gram transition probabilities
-            for i in range(2, len_seq):
-                prev3 = seq[i]
-                self.A[purpose_encoder.transform([prev[1]])[0]][purpose_encoder.transform([prev2[1]])[0]][purpose_encoder.transform([prev3[1]])[0]] += 1
-                self.B[purpose_encoder.transform([prev3[1]])[0]][mode_encoder.transform([prev3[0]])[0]] += 1
-                prev = prev2
-                prev2 = prev3
-
-            self.pi = self.pi / np.sum(self.pi)
-            # normalize A along last axis (sum_k A[i,j,k] = 1 when row has data)
-            A_row_sums = self.A.sum(axis=2, keepdims=True)   # shape: (num_states, num_states, 1)
-            np.divide(self.A, A_row_sums, out=self.A, where=A_row_sums != 0)
-
-            # normalize B along last axis (sum_o B[k,o] = 1 when row has data)
-            B_row_sums = self.B.sum(axis=1, keepdims=True)   # shape: (num_states, 1)
-            np.divide(self.B, B_row_sums, out=self.B, where=B_row_sums != 0)
-
-
-
-
 class HiddenMarkovModel:
     """
     Custom implementation of a Hidden Markov Model.
@@ -255,6 +202,158 @@ class HiddenMarkovModel:
             maxState = 0
             for i in range(self.num_states):
                 current = L[i][t] + np.log(self.A[i][stateSequence[-1]])
+                if current > totalMax:
+                    totalMax = current
+                    maxState = i
+            stateSequence.append(maxState)
+
+        return stateSequence[::-1]
+    
+class ThreeGramHiddenMarkovModel:
+    """
+    Custom implementation of a 3-gram Hidden Markov Model (IN PROGRESS)
+    """
+    def __init__(self, num_states: int, num_observations: int):
+        self.num_states = num_states
+        self.num_observations = num_observations
+        self.A = np.zeros((num_states, num_states, num_states), dtype=float)
+        self.B = np.zeros((num_states, num_observations), dtype=float)
+        self.pi = np.zeros((num_states, num_states), dtype=float)
+
+    def randomly_initialize_parameters(self, random_seed: int = 42):
+        """
+        Initialize A, B, and pi with random probabilities (normalized).
+        """
+        np.random.seed(random_seed)
+        
+        # Initialize self.A (random, normalize rows to sum to 1)
+        for i in range(self.num_states):
+            for j in range(self.num_states):
+                for k in range(self.num_states):
+                    self.A[i][j][k] = np.random.rand()
+                self.A[i][j] = self.A[i][j] / np.sum(self.A[i][j])
+
+        # Initialize self.B (random, normalize rows to sum to 1)
+        for i in range(self.num_states):
+            for j in range(self.num_observations):
+                self.B[i][j] = np.random.rand()
+            self.B[i] = self.B[i] / np.sum(self.B[i])
+            
+        # Initialize self.pi (random, normalize to sum to 1)
+        for i in range(self.num_states):
+            for j in range(self.num_states):
+                self.pi[i][j] = np.random.rand()
+        self.pi = self.pi / np.sum(self.pi)
+
+    def maximum_likelihood_initialize_parameters(self, train_sequences: List[List[int]], purpose_encoder: "LabelEncoder", mode_encoder: "LabelEncoder"):
+        """
+        Initialize A, B, pi using Maximum Likelihood on the training data.
+        """
+        self.A.fill(0.0)
+        self.B.fill(0.0)
+        self.pi.fill(0.0)
+
+        for seq in train_sequences:
+            len_seq = len(seq)
+            if len_seq == 0:
+                continue
+                
+            prev = seq[0]
+            self.B[purpose_encoder.transform([prev[1]])[0]][mode_encoder.transform([prev[0]])[0]] += 1
+
+            if len_seq == 1:
+                continue
+
+            prev2 = seq[1]
+            self.B[purpose_encoder.transform([prev2[1]])[0]][mode_encoder.transform([prev2[0]])[0]] += 1
+            self.pi[purpose_encoder.transform([prev[1]])[0]][purpose_encoder.transform([prev2[1]])[0]] += 1
+
+            if len_seq == 2:
+                continue
+            
+            for i in range(2, len_seq):
+                prev3 = seq[i]
+                self.A[purpose_encoder.transform([prev[1]])[0]][purpose_encoder.transform([prev2[1]])[0]][purpose_encoder.transform([prev3[1]])[0]] += 1
+                self.B[purpose_encoder.transform([prev3[1]])[0]][mode_encoder.transform([prev3[0]])[0]] += 1
+                prev = prev2
+                prev2 = prev3
+
+        self.pi = self.pi / np.sum(self.pi)
+        A_row_sums = self.A.sum(axis=2, keepdims=True)
+        np.divide(self.A, A_row_sums, out=self.A, where=A_row_sums != 0)
+        B_row_sums = self.B.sum(axis=1, keepdims=True)
+        np.divide(self.B, B_row_sums, out=self.B, where=B_row_sums != 0)
+
+    def predict_viterbi(self, observation_sequence: List[int]) -> List[int]:
+        """
+        Decode the most likely sequence of hidden states using the Viterbi algorithm.
+        """
+        T = len(observation_sequence)
+        L = np.zeros((self.num_states, self.num_states, T))
+
+        if T == 1:
+            bestState = 0
+            bestProbability = -np.inf
+            observation = observation_sequence[0]
+            for i in range(self.num_states):
+                p = np.log(self.B[i][observation])
+                if p > bestProbability:
+                    bestProbability = p
+                    bestState = i
+            return [bestState]
+
+        if T == 2:
+            totalMax = -np.inf
+            besti = 0
+            bestj = 0
+            o0 = observation_sequence[0]
+            o1 = observation_sequence[1]
+            for i in range(self.num_states):
+                for j in range(self.num_states):
+                    v = np.log(self.pi[i][j]) + np.log(self.B[i][o0]) + np.log(self.B[j][o1])
+                    if v > totalMax:
+                        totalMax = v
+                        besti = i
+                        bestj = j
+            return [besti, bestj]
+
+        for i in range(self.num_states):
+            for j in range(self.num_states):
+                L[i][j][1] = (
+                    np.log(self.pi[i][j]) + np.log(self.B[i][observation_sequence[0]]) + np.log(self.B[j][observation_sequence[1]])
+                )
+
+        for t in range(2, T):
+            observation = observation_sequence[t]
+            for i in range(self.num_states):
+                for j in range(self.num_states):
+                    totalMax = -np.inf
+                    for k in range(self.num_states):
+                        totalMax = max(L[k][i][t - 1] + np.log(self.A[k][i][j]), totalMax)
+                    L[i][j][t] = totalMax + np.log(self.B[j][observation])
+
+        stateSequence = []
+
+        totalMax = -np.inf
+        lasti = 0
+        lastj = 0
+        for i in range(self.num_states):
+            for j in range(self.num_states):
+                if L[i][j][T - 1] > totalMax:
+                    totalMax = L[i][j][T - 1]
+                    lasti = i
+                    lastj = j
+
+        stateSequence.append(lastj)
+        stateSequence.append(lasti)
+
+        for t in range(T - 1, 1, -1):
+            totalMax = -np.inf
+            maxState = 0
+            prev_i = stateSequence[-1]
+            prev_j = stateSequence[-2]
+            for i in range(self.num_states):
+                current = L[i][prev_i][t - 1] + np.log(self.A[i][prev_i][prev_j])
                 if current > totalMax:
                     totalMax = current
                     maxState = i
