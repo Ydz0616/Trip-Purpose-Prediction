@@ -2,60 +2,6 @@ import numpy as np
 from typing import List, Tuple
 from src.utils import LabelEncoder
 
-class ThreeGramHiddenMarkovModel:
-    """
-    Custom implementation of a 3-gram Hidden Markov Model (IN PROGRESS)
-    """
-    def __init__(self, num_states: int, num_observations: int):
-        self.num_states = num_states
-        self.num_observations = num_observations
-        self.A = np.zeros((num_states, num_states, num_states), dtype=float)
-        self.B = np.zeros((num_states, num_observations), dtype=float)
-        self.pi = np.zeros((num_states, num_states), dtype=float)
-
-    def randomly_initialize_parameters(self, random_seed: int = 42):
-        pass
-
-    def maximum_likelihood_initialize_parameters(self, train_sequences: List[List[int]], purpose_encoder: "LabelEncoder", mode_encoder: "LabelEncoder"):
-        for seq in train_sequences:
-            # Here the length of the sequence matters
-            len_seq = len(seq)
-            prev = seq[0]
-            self.B[purpose_encoder.transform([prev[1]])[0]][mode_encoder.transform([prev[0]])[0]] += 1
-
-            if len_seq == 1:
-                # we can only update the emission probabilities
-                continue
-
-            prev2 = seq[1]
-            self.B[purpose_encoder.transform([prev2[1]])[0]][mode_encoder.transform([prev2[0]])[0]] += 1
-            self.pi[purpose_encoder.transform([prev[1]])[0]][purpose_encoder.transform([prev2[1]])[0]] += 1
-
-            if len_seq == 2:
-                # we can update the emission and initial probabilities
-                continue
-            
-            # we can update the emission, initial, and 3-gram transition probabilities
-            for i in range(2, len_seq):
-                prev3 = seq[i]
-                self.A[purpose_encoder.transform([prev[1]])[0]][purpose_encoder.transform([prev2[1]])[0]][purpose_encoder.transform([prev3[1]])[0]] += 1
-                self.B[purpose_encoder.transform([prev3[1]])[0]][mode_encoder.transform([prev3[0]])[0]] += 1
-                prev = prev2
-                prev2 = prev3
-
-            self.pi = self.pi / np.sum(self.pi)
-            # normalize A along last axis (sum_k A[i,j,k] = 1 when row has data)
-            A_row_sums = self.A.sum(axis=2, keepdims=True)   # shape: (num_states, num_states, 1)
-            np.divide(self.A, A_row_sums, out=self.A, where=A_row_sums != 0)
-
-            # normalize B along last axis (sum_o B[k,o] = 1 when row has data)
-            B_row_sums = self.B.sum(axis=1, keepdims=True)   # shape: (num_states, 1)
-            np.divide(self.B, B_row_sums, out=self.B, where=B_row_sums != 0)
-
-
-
-
-
 class HiddenMarkovModel:
     """
     Custom implementation of a Hidden Markov Model.
@@ -129,10 +75,17 @@ class HiddenMarkovModel:
                 self.B[purpose_encoder.transform([curr[1]])[0]][mode_encoder.transform([curr[0]])[0]] += 1
                 prev = curr
 
-        self.pi = self.pi / np.sum(self.pi)
+        pi_total = np.sum(self.pi)
+        if pi_total == 0:
+            # No data; fall back to uniform to avoid NaNs.
+            self.pi[:] = 1.0 / self.num_states
+        else:
+            self.pi /= pi_total
+
         row_sums = self.A.sum(axis=1, keepdims=True)
         row_sums[row_sums == 0] = 1.0
         self.A /= row_sums
+
         row_sums = self.B.sum(axis=1, keepdims=True)
         row_sums[row_sums == 0] = 1.0
         self.B /= row_sums
@@ -231,12 +184,13 @@ class HiddenMarkovModel:
         Returns:
             List[int]: Most likely sequence of state indices.
         """
+        eps = 1e-15
         T = len(observation_sequence)
         L = np.zeros((self.num_states, T))
 
         #l_i0 = log(pi_i) + log(b_i0)
         for i in range(self.num_states):
-            L[i][0] = np.log(self.pi[i]) + np.log(self.B[i][observation_sequence[0]])
+            L[i][0] = np.log(self.pi[i] + eps) + np.log(self.B[i][observation_sequence[0]] + eps)
         
         #l_j,t+1 = max_i[l_it + log(a_ij)] + log(b_j,t+1)
         for i in range(1, T):
@@ -244,8 +198,8 @@ class HiddenMarkovModel:
             for j in range(self.num_states):
                 totalMax = -np.inf
                 for k in range(self.num_states):
-                    totalMax = max(L[k][i - 1] + np.log(self.A[k][j]), totalMax)
-                L[j][i] = totalMax + np.log(self.B[j][observation])
+                    totalMax = max(L[k][i - 1] + np.log(self.A[k][j] + eps), totalMax)
+                L[j][i] = totalMax + np.log(self.B[j][observation] + eps)
         
         stateSequence = []
         stateSequence.append(np.argmax(L[:, T - 1]))
@@ -255,7 +209,7 @@ class HiddenMarkovModel:
             totalMax = -np.inf
             maxState = 0
             for i in range(self.num_states):
-                current = L[i][t] + np.log(self.A[i][stateSequence[-1]])
+                current = L[i][t] + np.log(self.A[i][stateSequence[-1]] + eps)
                 if current > totalMax:
                     totalMax = current
                     maxState = i
@@ -343,6 +297,7 @@ class ThreeGramHiddenMarkovModel:
         """
         Decode the most likely sequence of hidden states using the Viterbi algorithm.
         """
+        eps = 1e-15
         T = len(observation_sequence)
         L = np.zeros((self.num_states, self.num_states, T))
 
@@ -351,7 +306,7 @@ class ThreeGramHiddenMarkovModel:
             bestProbability = -np.inf
             observation = observation_sequence[0]
             for i in range(self.num_states):
-                p = np.log(self.B[i][observation])
+                p = np.log(self.B[i][observation] + eps)
                 if p > bestProbability:
                     bestProbability = p
                     bestState = i
@@ -365,7 +320,7 @@ class ThreeGramHiddenMarkovModel:
             o1 = observation_sequence[1]
             for i in range(self.num_states):
                 for j in range(self.num_states):
-                    v = np.log(self.pi[i][j]) + np.log(self.B[i][o0]) + np.log(self.B[j][o1])
+                    v = np.log(self.pi[i][j] + eps) + np.log(self.B[i][o0] + eps) + np.log(self.B[j][o1] + eps)
                     if v > totalMax:
                         totalMax = v
                         besti = i
@@ -375,7 +330,9 @@ class ThreeGramHiddenMarkovModel:
         for i in range(self.num_states):
             for j in range(self.num_states):
                 L[i][j][1] = (
-                    np.log(self.pi[i][j]) + np.log(self.B[i][observation_sequence[0]]) + np.log(self.B[j][observation_sequence[1]])
+                    np.log(self.pi[i][j] + eps)
+                    + np.log(self.B[i][observation_sequence[0]] + eps)
+                    + np.log(self.B[j][observation_sequence[1]] + eps)
                 )
 
         for t in range(2, T):
@@ -384,8 +341,8 @@ class ThreeGramHiddenMarkovModel:
                 for j in range(self.num_states):
                     totalMax = -np.inf
                     for k in range(self.num_states):
-                        totalMax = max(L[k][i][t - 1] + np.log(self.A[k][i][j]), totalMax)
-                    L[i][j][t] = totalMax + np.log(self.B[j][observation])
+                        totalMax = max(L[k][i][t - 1] + np.log(self.A[k][i][j] + eps), totalMax)
+                    L[i][j][t] = totalMax + np.log(self.B[j][observation] + eps)
 
         stateSequence = []
 
@@ -408,7 +365,7 @@ class ThreeGramHiddenMarkovModel:
             prev_i = stateSequence[-1]
             prev_j = stateSequence[-2]
             for i in range(self.num_states):
-                current = L[i][prev_i][t - 1] + np.log(self.A[i][prev_i][prev_j])
+                current = L[i][prev_i][t - 1] + np.log(self.A[i][prev_i][prev_j] + eps)
                 if current > totalMax:
                     totalMax = current
                     maxState = i
